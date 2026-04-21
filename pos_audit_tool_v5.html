@@ -640,13 +640,13 @@
     <div class="upload-simple">
       <div class="upload-label">📋 Plan of Study</div>
       <div class="upload-sub">Select the POS (.xlsx)</div>
-      <input type="file" id="pos-file" accept=".xlsx,.xls" onchange="handleFile(this.files[0], 'pos-card', document.getElementById('pos-name'), 'xlsx')" style="margin-top:10px; font-family:inherit; font-size:13px;" />
+      <input type="file" id="pos-file" accept=".xlsx,.xls" onchange="handleFile(this.files[0], null, document.getElementById('pos-name'), 'xlsx')" style="margin-top:10px; font-family:inherit; font-size:13px;" />
       <div class="upload-filename" id="pos-name" style="display:none; margin-top:8px;"></div>
     </div>
     <div class="upload-simple">
       <div class="upload-label">🎓 Student Transcript</div>
       <div class="upload-sub">Select the transcript (.pdf)</div>
-      <input type="file" id="tx-file" accept=".pdf" onchange="handleFile(this.files[0], 'tx-card', document.getElementById('tx-name'), 'pdf')" style="margin-top:10px; font-family:inherit; font-size:13px;" />
+      <input type="file" id="tx-file" accept=".pdf" onchange="handleFile(this.files[0], null, document.getElementById('tx-name'), 'pdf')" style="margin-top:10px; font-family:inherit; font-size:13px;" />
       <div class="upload-filename" id="tx-name" style="display:none; margin-top:8px;"></div>
     </div>
   </div>
@@ -707,6 +707,7 @@ let posMetadata = { aciName: '', asuDegree: '', asuUnit: '', aciDegree: '', conv
 function handleFile(file, cardId, nameEl, mimeHint) {
   if (!file) return;
   const reader = new FileReader();
+  const box = nameEl ? nameEl.parentElement : null;
 
   if (mimeHint === 'xlsx') {
     reader.onload = e => {
@@ -778,9 +779,9 @@ function handleFile(file, cardId, nameEl, mimeHint) {
         if (conversion) document.getElementById('hdr-conversion').textContent = conversion;
         if (model) document.getElementById('header-pill').textContent = model + ' Global Link Dual Degree';
 
-        nameEl.style.display = 'inline-block';
+        nameEl.style.display = 'block';
         nameEl.textContent = '✓ ' + file.name;
-        nameEl.closest('.upload-simple').classList.add('filled');
+        if (box) box.classList.add('filled');
       } catch(err) {
         alert('Could not read Excel file: ' + err.message);
       }
@@ -789,9 +790,9 @@ function handleFile(file, cardId, nameEl, mimeHint) {
   } else {
     reader.onload = e => {
       txBase64 = e.target.result.split(',')[1];
-      nameEl.style.display = 'inline-block';
+      nameEl.style.display = 'block';
       nameEl.textContent = '✓ ' + file.name;
-      nameEl.closest('.upload-simple').classList.add('filled');
+      if (box) box.classList.add('filled');
     };
     reader.readAsDataURL(file);
   }
