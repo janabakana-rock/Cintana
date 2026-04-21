@@ -649,7 +649,7 @@
       <input type="file" id="tx-file" accept=".pdf" />
       <span class="upload-icon">🎓</span>
       <div class="upload-label">Student Transcript</div>
-      <div class="upload-sub">Upload the transcript (.pdf)</div>
+      <div class="upload-sub">Upload the student transcript (.pdf)</div>
       <div class="upload-filename" id="tx-name" style="display:none"></div>
     </div>
   </div>
@@ -702,7 +702,7 @@
 </main>
 
 <script>
-let posBase64 = null;
+let posText = null;
 let txBase64 = null;
 let lastAuditData = null;
 
@@ -726,15 +726,40 @@ function setupDrop(cardId, inputId, nameId, mimeHint) {
 function handleFile(file, cardId, nameEl, mimeHint) {
   if (!file) return;
   const reader = new FileReader();
-  reader.onload = e => {
-    const b64 = e.target.result.split(',')[1];
-    if (cardId === 'pos-card') posBase64 = b64;
-    else txBase64 = b64;
-    document.getElementById(cardId).classList.add('filled');
-    nameEl.style.display = 'inline-block';
-    nameEl.textContent = file.name;
-  };
-  reader.readAsDataURL(file);
+
+  if (mimeHint === 'xlsx') {
+    // Extract text from Excel using SheetJS — much smaller than base64
+    reader.onload = e => {
+      try {
+        const wb = XLSX.read(e.target.result, { type: 'array' });
+        let extracted = '';
+        // Focus on "Plan of Study" sheet if it exists, otherwise all sheets
+        const targetSheets = wb.SheetNames.filter(n => n.toLowerCase().includes('plan') || n.toLowerCase().includes('study'));
+        const sheetsToRead = targetSheets.length > 0 ? targetSheets : wb.SheetNames;
+        sheetsToRead.forEach(name => {
+          const ws = wb.Sheets[name];
+          extracted += `\n=== Sheet: ${name} ===\n`;
+          extracted += XLSX.utils.sheet_to_csv(ws, { blankrows: false });
+        });
+        posText = extracted.slice(0, 12000); // cap at 12k chars — plenty for a POS
+        document.getElementById(cardId).classList.add('filled');
+        nameEl.style.display = 'inline-block';
+        nameEl.textContent = file.name + ' ✓ extracted';
+      } catch(err) {
+        alert('Could not read Excel file: ' + err.message);
+      }
+    };
+    reader.readAsArrayBuffer(file);
+  } else {
+    // PDF — send as base64
+    reader.onload = e => {
+      txBase64 = e.target.result.split(',')[1];
+      document.getElementById(cardId).classList.add('filled');
+      nameEl.style.display = 'inline-block';
+      nameEl.textContent = file.name;
+    };
+    reader.readAsDataURL(file);
+  }
 }
 
 setupDrop('pos-card', 'pos-file', 'pos-name', 'xlsx');
@@ -747,7 +772,7 @@ function setStatus(msg) {
 async function runAudit() {
   const apiKey = document.getElementById('apikey').value.trim();
   if (!apiKey) { alert('Please enter your Anthropic API key.'); return; }
-  if (!posBase64) { alert('Please upload the Plan of Study (.xlsx).'); return; }
+  if (!posText) { alert('Please upload the Plan of Study (.xlsx).'); return; }
   if (!txBase64) { alert('Please upload the student transcript (.pdf).'); return; }
 
   const advisorName = document.getElementById('advisor-name').value.trim();
@@ -872,24 +897,22 @@ Return a JSON object ONLY — no markdown, no preamble — with this exact struc
     },
     {
       type: "text",
-      text: `Here is the student transcript (PDF above) and the Plan of Study Excel file (base64 below). 
+      text: `Here is the student transcript (PDF above) and the Plan of Study course table extracted from the Excel file below.
 
-POS Excel (base64): ${posBase64}
+PLAN OF STUDY (extracted from Excel):
+${posText}
 
 Advisor name: ${advisorName || 'Not provided'}
 Additional notes: ${extraNotes || 'None'}
 
-Please perform the POS audit and return the JSON only.`
+Please perform the POS audit comparing the transcript against the Year 1 and Year 2 ACI requirements in the POS table above, and return the JSON only.`
     }
   ];
 
   try {
     setStatus('Claude is reading and cross-referencing both documents…');
 
-    // Use corsproxy.io to bypass CORS restriction when running from local file/localhost
-    const proxyUrl = 'https://corsproxy.io/?' + encodeURIComponent('https://api.anthropic.com/v1/messages');
-
-    const response = await fetch(proxyUrl, {
+    const response = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -898,8 +921,8 @@ Please perform the POS audit and return the JSON only.`
         'anthropic-dangerous-direct-browser-access': 'true'
       },
       body: JSON.stringify({
-        model: 'claude-sonnet-4-20250514',
-        max_tokens: 4000,
+        model: 'claude-sonnet-4-6',
+        max_tokens: 8000,
         system: systemPrompt,
         messages: [{ role: 'user', content: userContent }]
       })
@@ -916,8 +939,22 @@ Please perform the POS audit and return the JSON only.`
 
     const clean = rawText.replace(/```json|```/g, '').trim();
     let audit;
-    try { audit = JSON.parse(clean); }
-    catch(e) { throw new Error('Could not parse Claude response as JSON. Raw: ' + rawText.slice(0, 300)); }
+    try {
+      // First try direct parse
+      audit = JSON.parse(clean);
+    } catch(e) {
+      // Try to extract JSON object from anywhere in the response
+      const match = clean.match(/\{[\s\S]*\}/);
+      if (match) {
+        try {
+          audit = JSON.parse(match[0]);
+        } catch(e2) {
+          throw new Error('Could not parse Claude response. Raw: ' + rawText.slice(0, 400));
+        }
+      } else {
+        throw new Error('Could not parse Claude response. Raw: ' + rawText.slice(0, 400));
+      }
+    }
 
     lastAuditData = audit;
     renderAudit(audit, advisorName);
