@@ -603,29 +603,33 @@
       <h1>POS Audit Tool</h1>
       <span>Enrollment Advising</span>
     </div>
-    <div class="header-pill">2+2 Global Link Dual Degree</div>
+    <div class="header-pill" id="header-pill">Global Link Dual Degree</div>
   </div>
-  <div class="header-program-bar">
+  <div class="header-program-bar" id="program-bar">
     <div class="prog-block">
       <div class="prog-label">From</div>
-      <div class="prog-value">Shiv Nadar University (SNU)</div>
+      <div class="prog-value" id="hdr-aci">— upload POS to populate —</div>
     </div>
     <div class="prog-arrow">→</div>
     <div class="prog-block">
       <div class="prog-label">To</div>
-      <div class="prog-value">Arizona State University (ASU)</div>
+      <div class="prog-value" id="hdr-asu">Arizona State University (ASU)</div>
     </div>
     <div class="prog-block">
       <div class="prog-label">ACI Degree</div>
-      <div class="prog-value">BS — Computer Science</div>
+      <div class="prog-value" id="hdr-aci-degree">—</div>
+    </div>
+    <div class="prog-block">
+      <div class="prog-label">ASU Academic Unit</div>
+      <div class="prog-value" id="hdr-asu-unit">—</div>
     </div>
     <div class="prog-block">
       <div class="prog-label">ASU Degree</div>
-      <div class="prog-value">BS — Computer Science · Ira A. Fulton Schools of Engineering</div>
+      <div class="prog-value" id="hdr-asu-degree">—</div>
     </div>
     <div class="prog-block" style="margin-left:auto">
       <div class="prog-label">Credit Conversion</div>
-      <div class="prog-value">1 SNU Credit = 0.75 ASU Credit</div>
+      <div class="prog-value" id="hdr-conversion">—</div>
     </div>
   </div>
 </header>
@@ -708,6 +712,7 @@
 let posText = null;
 let txBase64 = null;
 let lastAuditData = null;
+let posMetadata = { aciName: '', asuDegree: '', asuUnit: '', aciDegree: '', conversion: '', model: '' };
 
 function setupDrop(cardId, inputId, nameId, mimeHint) {
   const card = document.getElementById(cardId);
@@ -731,12 +736,10 @@ function handleFile(file, cardId, nameEl, mimeHint) {
   const reader = new FileReader();
 
   if (mimeHint === 'xlsx') {
-    // Extract text from Excel using SheetJS — much smaller than base64
     reader.onload = e => {
       try {
         const wb = XLSX.read(e.target.result, { type: 'array' });
         let extracted = '';
-        // Focus on "Plan of Study" sheet if it exists, otherwise all sheets
         const targetSheets = wb.SheetNames.filter(n => n.toLowerCase().includes('plan') || n.toLowerCase().includes('study'));
         const sheetsToRead = targetSheets.length > 0 ? targetSheets : wb.SheetNames;
         sheetsToRead.forEach(name => {
@@ -744,7 +747,65 @@ function handleFile(file, cardId, nameEl, mimeHint) {
           extracted += `\n=== Sheet: ${name} ===\n`;
           extracted += XLSX.utils.sheet_to_csv(ws, { blankrows: false });
         });
-        posText = extracted.slice(0, 12000); // cap at 12k chars — plenty for a POS
+        posText = extracted.slice(0, 14000);
+
+        // ── Parse program metadata from POS ──────────────────────────────
+        const lines = posText.split('\n');
+        let aciName = '', asuDegree = '', asuUnit = '', aciDegree = '', conversion = '', model = '';
+
+        for (const line of lines) {
+          const l = line.toLowerCase();
+          if (!aciName && (l.includes('cintana institution') || l.includes('aci:') || l.includes('aci name'))) {
+            const m = line.match(/:\s*([^,\n"]+)/);
+            if (m) aciName = m[1].trim().replace(/^"|"$/g,'');
+          }
+          if (!asuUnit && l.includes('asu academic unit')) {
+            const m = line.match(/asu academic unit[^,]*,\s*([^,\n"]+)/i) || line.match(/:\s*([^,\n"]+)/);
+            if (m) asuUnit = m[1].trim().replace(/^"|"$/g,'');
+          }
+          if (!asuDegree && l.includes('asu degree program')) {
+            const m = line.match(/asu degree program[^,]*,\s*([^,\n"]+)/i) || line.match(/:\s*([^,\n"]+)/);
+            if (m) asuDegree = m[1].trim().replace(/^"|"$/g,'');
+          }
+          if (!aciDegree && l.includes('aci degree program')) {
+            const m = line.match(/aci degree program[^,]*,\s*([^,\n"]+)/i) || line.match(/:\s*([^,\n"]+)/);
+            if (m) aciDegree = m[1].trim().replace(/^"|"$/g,'');
+          }
+          if (!conversion && (l.includes('credit') && l.includes('ratio') || l.includes('conversion'))) {
+            const m = line.match(/([0-9.]+ [a-z]+ credit[^,\n"]*)/i);
+            if (m) conversion = m[1].trim().replace(/^"|"$/g,'');
+          }
+          // Detect model type from year/term structure
+          if (!model) {
+            const yrMatch = line.match(/^"?(\d+)"?,"?(\d+)"?/);
+            if (yrMatch) {
+              const maxYr = parseInt(yrMatch[1]);
+              if (maxYr >= 3) model = maxYr + '+' + (4 - maxYr);
+              else model = '2+2';
+            }
+          }
+        }
+
+        // Detect max ACI year to infer model
+        let maxAciYear = 0;
+        const asuToLine = lines.findIndex(l => l.toLowerCase().includes('transfer to asu'));
+        for (let i = 0; i < (asuToLine > 0 ? asuToLine : lines.length); i++) {
+          const m = lines[i].match(/^"?(\d+)"?,"?\d+"?/);
+          if (m) maxAciYear = Math.max(maxAciYear, parseInt(m[1]));
+        }
+        if (maxAciYear > 0) model = maxAciYear + '+' + (4 - maxAciYear);
+
+        // ── Store metadata for use in runAudit ────────────────────────────
+        posMetadata = { aciName, asuDegree, asuUnit, aciDegree, conversion, model };
+
+        // ── Update header bar silently ────────────────────────────────────
+        if (aciName) document.getElementById('hdr-aci').textContent = aciName;
+        if (asuUnit) document.getElementById('hdr-asu-unit').textContent = asuUnit;
+        if (asuDegree) document.getElementById('hdr-asu-degree').textContent = asuDegree;
+        if (aciDegree) document.getElementById('hdr-aci-degree').textContent = aciDegree;
+        if (conversion) document.getElementById('hdr-conversion').textContent = conversion;
+        if (model) document.getElementById('header-pill').textContent = model + ' Global Link Dual Degree';
+
         document.getElementById(cardId).classList.add('filled');
         nameEl.style.display = 'inline-block';
         nameEl.textContent = file.name + ' ✓ extracted';
@@ -754,7 +815,6 @@ function handleFile(file, cardId, nameEl, mimeHint) {
     };
     reader.readAsArrayBuffer(file);
   } else {
-    // PDF — send as base64
     reader.onload = e => {
       txBase64 = e.target.result.split(',')[1];
       document.getElementById(cardId).classList.add('filled');
@@ -786,114 +846,59 @@ async function runAudit() {
   document.getElementById('result-area').classList.remove('visible');
   setStatus('Sending documents to Claude for analysis…');
 
-  const systemPrompt = `You are an expert enrollment advisor assistant for a 2+2 dual degree program between Shiv Nadar University (SNU) and Arizona State University (ASU).
+  const programModel = posMetadata.model || 'Dual Degree';
+  const aciInstitution = posMetadata.aciName || 'the ACI institution';
+  const creditConversion = posMetadata.conversion || 'as defined in the POS';
+
+  const systemPrompt = `You are an expert enrollment advisor assistant for a Global Link Dual Degree Program (${programModel}) between ${aciInstitution} (the ACI) and Arizona State University (ASU). Credit conversion: ${creditConversion}.
 
 You will receive:
-1. A Plan of Study (POS) Excel file — this defines the required courses for the first two years at SNU (the ACI) and maps them to ASU equivalents. The key columns are in the "Plan of Study" sheet: Year, Term, ASU Major Map Requirement, ASU Course, ACI course name (col G/I), and ACI credit hours (col J).
-2. A student transcript PDF from SNU.
+1. A Plan of Study (POS) extracted from an Excel file — this defines the required courses for the ACI years and maps them to ASU equivalents. Key columns in the "Plan of Study" sheet: Year, Term, ASU Major Map Requirement, ASU Course, ACI course name (col G/I), ACI credit hours (col J), Transfer Direction, and Origin.
+2. A student transcript PDF from the ACI institution.
 
-Your task: Compare the transcript against the Year 1 and Year 2 ACI requirements in the POS.
+IMPORTANT — Program Model & Audit Scope:
+This tool supports multiple partnership structures (2+2, 3+1, 1+1, etc.). The program model for this audit is: ${programModel}.
+Audit ALL ACI-side course requirements found in the POS — identified by rows where the Transfer Direction is "ACI to ASU" or "SNU to ASU" (or similar). Do NOT assume the ACI years are always 2. Read the POS structure to determine the full scope.
+ULC courses (marked "ASU UL" or "ASU to SNU") are an exception — include them with advisor verification status.
+Stop auditing at the "Transfer to ASU" divider line in the POS if present.
 
-═══════════════════════════════════════════
-MATCHING RULES — apply all of these consistently
-═══════════════════════════════════════════
-
-RULE 1 — Exact course code match
-If the transcript contains the same ACI/SNU course code listed in the POS, mark as "Completed – Exact Match".
-Examples: POS CSE 11D → Transcript CSE11D. Spacing differences are ignored.
-
-RULE 2 — Normalized code match
-Treat codes as equivalent when they differ only by spacing, punctuation, or capitalization.
-Normalization: remove spaces, ignore capitalization, compare alphanumeric only.
-CSE 11D = CSE11D, MAT 26D = MAT26D, PHY 12D = PHY12D.
-
-RULE 3 — Exact or near-exact title match
-If the course code differs slightly but the title is clearly the same, mark as "Completed – Title/Equivalency Match".
-This is especially relevant when the ASU-side subject prefix differs from the ACI-side prefix (e.g. ASU MAT 243 = SNU CSE 25D: Discrete Mathematical Structures).
-
-RULE 4 — POS ACI column controls the audit
-For this 2+2 review, the ACI/SNU equivalent course listed in the POS (columns G/I/J) is the primary requirement to match against the transcript — not the ASU course code.
-Examples: ASU CSE 230 is audited against SNU CSE 23D. ASU CSE 310 is audited against SNU CSE 31D.
-
-RULE 5 — Paired courses must both be completed
-If the POS lists a requirement as "Course A AND Course B", both must appear on the transcript unless an approved substitution is documented.
-If only one appears, mark as "Partial – Incomplete paired requirement".
-Applies to: CHM 10D AND CHM 11D; PHY 12D AND PHY 13D; PHY 14D AND PHY 15D.
-
-RULE 6 — ULC English courses require advisor verification
-ENG 101 and ENG 102 are ASU Universal Learner Courses (ULC) taken online — they will NOT appear on the SNU transcript.
-Do NOT mark them as missing. Always mark as "Advisor Verification Required – Check ASU ULC completion".
-This applies to: Year 1 Term 2 (ENG 101) and Year 2 Term 3 (ENG 102).
-
-RULE 7 — Grade must indicate successful completion
-A course counts as completed only with a satisfactory passing grade (A, B, B-, C, etc.).
-Grade Z = course continuation = NOT completed. Do not count Z as complete on the transcript.
-For ENG 101/102, final disposition is always: check ULC separately regardless of any Z grade on SNU transcript.
-
-RULE 8 — Sequence review based on POS term order
-Flag a course as out of sequence if a later-term POS course is completed while an earlier required prerequisite POS course is still missing.
-Flag: advanced Year 2 CS courses completed while key Year 1 CS foundations are absent; later science sequences completed while earlier required science pairs are missing.
-
-RULE 9 — "Not found" means not evidenced
-If a required POS course is not on the transcript and no approved substitution is documented, mark as "Missing – Not found on transcript".
-
-RULE 10 — "No Transfer" POS rows are tracked separately
-POS rows marked "No Transfer" (e.g. CCC70D: Environmental Sciences) should NOT be treated as fulfilling ASU transfer credit.
-Track them separately and do not confuse them with ASU-equivalent required transfer courses.
+Your task: Compare the transcript against ALL ACI year requirements in the POS, term by term.
 
 ═══════════════════════════════════════════
-STATUS VALUES to use (use exactly as written):
+MATCHING RULES
 ═══════════════════════════════════════════
-"Completed – Exact Match"
-"Completed – Title/Equivalency Match"
-"Partial – Incomplete paired requirement"
-"Missing – Not found on transcript"
-"Pending – Confirm enrollment"
-"Advisor Verification Required – Check ASU ULC completion"
-"In Progress – Grade Z (continuation)"
-"Sequence Note – Confirm mapping"
-"Extra Course – May count as elective"
-"No Transfer – Track separately"
 
-═══════════════════════════════════════════
-Return a JSON object ONLY — no markdown, no preamble — with this exact structure:
-═══════════════════════════════════════════
+RULE 1 — Exact code match: same ACI code on transcript → "Completed – Exact Match". Ignore spacing.
+RULE 2 — Normalized match: codes equivalent when differing only by spacing/punctuation/case → "Completed – Exact Match".
+RULE 3 — Title match: code differs slightly but title is clearly the same → "Completed – Title/Equivalency Match".
+RULE 4 — ACI column controls: match transcript against ACI course code/title in POS cols G/I/J, not the ASU code.
+RULE 5 — Paired courses: if POS says "A AND B", both must appear. One only → "Partial – Incomplete paired requirement".
+RULE 6 — ULC English: ENG 101/102 are ASU ULC online courses — NEVER on ACI transcript. Always → "Advisor Verification Required – Check ASU ULC completion".
+RULE 7 — Grade required: passing grade (A/B/C etc.) needed. Grade Z = not complete. ENG 101/102 always go to ULC check.
+RULE 8 — Sequence: flag if later-term course completed while earlier prerequisite missing.
+RULE 9 — Not found: required course absent with no documented substitution → "Missing – Not found on transcript".
+RULE 10 — No Transfer rows: POS rows marked "No Transfer" don't fulfil ASU transfer credit → "No Transfer – Track separately".
+
+STATUS VALUES (use exactly as written):
+"Completed – Exact Match" | "Completed – Title/Equivalency Match" | "Partial – Incomplete paired requirement"
+"Missing – Not found on transcript" | "Pending – Confirm enrollment" | "Advisor Verification Required – Check ASU ULC completion"
+"In Progress – Grade Z (continuation)" | "Sequence Note – Confirm mapping" | "Extra Course – May count as elective" | "No Transfer – Track separately"
+
+Return JSON ONLY — no markdown, no preamble:
 {
-  "student": {
-    "name": "string",
-    "rollNumber": "string",
-    "program": "string",
-    "institution": "string",
-    "cgpa": "string",
-    "transcriptDate": "string"
-  },
-  "summary": {
-    "completed": number,
-    "inProgress": number,
-    "missing": number,
-    "needsAdvisorCheck": number
-  },
-  "ulcNote": "string — the ULC advisor note for ENG 101 and ENG 102",
+  "student": { "name": "string", "rollNumber": "string", "program": "string", "institution": "string", "cgpa": "string", "transcriptDate": "string" },
+  "programModel": "string (e.g. 2+2, 3+1)",
+  "aciYearsAudited": "string (e.g. Years 1–2)",
+  "summary": { "completed": number, "inProgress": number, "missing": number, "needsAdvisorCheck": number },
+  "ulcNote": "string",
   "terms": [
-    {
-      "termLabel": "string (e.g. Year 1 — Term 1 (Monsoon 2024))",
-      "courses": [
-        {
-          "posRequirement": "string (ASU course name and ACI equivalent)",
-          "aciCode": "string",
-          "transcriptEntry": "string or null",
-          "grade": "string or null",
-          "status": "one of the status values above",
-          "matchRule": "Rule 1 | Rule 2 | Rule 3 | Rule 4 | Rule 5 | Rule 6 | Rule 7 | Rule 8 | Rule 9 | Rule 10 | N/A",
-          "notes": "string or empty"
-        }
-      ]
-    }
+    { "termLabel": "string", "courses": [
+      { "posRequirement": "string", "aciCode": "string", "transcriptEntry": "string or null",
+        "grade": "string or null", "status": "string", "matchRule": "Rule N or N/A", "notes": "string" }
+    ]}
   ],
-  "actionItems": ["string", "string", ...]
+  "actionItems": ["string"]
 }`;
-
-  const userContent = [
     {
       type: "document",
       source: { type: "base64", media_type: "application/pdf", data: txBase64 }
@@ -998,6 +1003,8 @@ function renderAudit(audit, advisorName) {
   if (s.rollNumber) html += `<div class="meta-chip">Roll No: <strong>${s.rollNumber}</strong></div>`;
   if (s.institution) html += `<div class="meta-chip">Institution: <strong>${s.institution}</strong></div>`;
   if (s.program) html += `<div class="meta-chip">Program: <strong>${s.program}</strong></div>`;
+  if (audit.programModel) html += `<div class="meta-chip">Model: <strong>${audit.programModel}</strong></div>`;
+  if (audit.aciYearsAudited) html += `<div class="meta-chip">ACI Years Audited: <strong>${audit.aciYearsAudited}</strong></div>`;
   if (s.cgpa) html += `<div class="meta-chip">CGPA: <strong>${s.cgpa}</strong></div>`;
   if (s.transcriptDate) html += `<div class="meta-chip">Transcript date: <strong>${s.transcriptDate}</strong></div>`;
   if (advisorName) html += `<div class="meta-chip">Advisor: <strong>${advisorName}</strong></div>`;
