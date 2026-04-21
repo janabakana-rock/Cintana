@@ -220,24 +220,14 @@
 
   @media (max-width: 580px) { .upload-grid { grid-template-columns: 1fr; } }
 
-  .upload-card {
+  .upload-simple {
     background: var(--surface-raised);
-    border: 1.5px dashed var(--border-strong);
+    border: 1px solid var(--border-strong);
     border-radius: var(--radius-lg);
-    padding: 1.5rem;
-    text-align: center;
-    cursor: pointer;
-    transition: border-color 0.18s, background 0.18s;
-    user-select: none;
+    padding: 1.25rem 1.5rem;
   }
 
-  .upload-card:hover, .upload-card.dragover {
-    border-color: var(--gold);
-    background: var(--gold-light);
-  }
-
-  .upload-card.filled {
-    border-style: solid;
+  .upload-simple.filled {
     border-color: var(--gold);
     background: var(--gold-light);
   }
@@ -646,22 +636,18 @@
   </div>
 
   <!-- UPLOADS -->
-  <!-- Hidden file inputs outside the cards — triggered by buttons -->
-  <input type="file" id="pos-file" accept=".xlsx,.xls" style="display:none" />
-  <input type="file" id="tx-file" accept=".pdf" style="display:none" />
-
   <div class="upload-grid">
-    <div class="upload-card" id="pos-card" onclick="document.getElementById('pos-file').click()">
-      <span class="upload-icon">📋</span>
-      <div class="upload-label">Plan of Study</div>
-      <div class="upload-sub">Click to upload POS (.xlsx)</div>
-      <div class="upload-filename" id="pos-name" style="display:none"></div>
+    <div class="upload-simple">
+      <div class="upload-label">📋 Plan of Study</div>
+      <div class="upload-sub">Select the POS (.xlsx)</div>
+      <input type="file" id="pos-file" accept=".xlsx,.xls" onchange="handleFile(this.files[0], 'pos-card', document.getElementById('pos-name'), 'xlsx')" style="margin-top:10px; font-family:inherit; font-size:13px;" />
+      <div class="upload-filename" id="pos-name" style="display:none; margin-top:8px;"></div>
     </div>
-    <div class="upload-card" id="tx-card" onclick="document.getElementById('tx-file').click()">
-      <span class="upload-icon">🎓</span>
-      <div class="upload-label">Student Transcript</div>
-      <div class="upload-sub">Click to upload transcript (.pdf)</div>
-      <div class="upload-filename" id="tx-name" style="display:none"></div>
+    <div class="upload-simple">
+      <div class="upload-label">🎓 Student Transcript</div>
+      <div class="upload-sub">Select the transcript (.pdf)</div>
+      <input type="file" id="tx-file" accept=".pdf" onchange="handleFile(this.files[0], 'tx-card', document.getElementById('tx-name'), 'pdf')" style="margin-top:10px; font-family:inherit; font-size:13px;" />
+      <div class="upload-filename" id="tx-name" style="display:none; margin-top:8px;"></div>
     </div>
   </div>
 
@@ -717,27 +703,6 @@ let posText = null;
 let txBase64 = null;
 let lastAuditData = null;
 let posMetadata = { aciName: '', asuDegree: '', asuUnit: '', aciDegree: '', conversion: '', model: '' };
-
-function setupDrop(cardId, inputId, nameId, mimeHint) {
-  const card = document.getElementById(cardId);
-  const input = document.getElementById(inputId);
-  const nameEl = document.getElementById(nameId);
-
-  // File selected via dialog
-  input.addEventListener('change', () => {
-    if (input.files[0]) handleFile(input.files[0], cardId, nameEl, mimeHint);
-  });
-
-  // Drag and drop onto card
-  card.addEventListener('dragover', e => { e.preventDefault(); card.classList.add('dragover'); });
-  card.addEventListener('dragleave', () => card.classList.remove('dragover'));
-  card.addEventListener('drop', e => {
-    e.preventDefault();
-    card.classList.remove('dragover');
-    const f = e.dataTransfer.files[0];
-    if (f) handleFile(f, cardId, nameEl, mimeHint);
-  });
-}
 
 function handleFile(file, cardId, nameEl, mimeHint) {
   if (!file) return;
@@ -803,7 +768,6 @@ function handleFile(file, cardId, nameEl, mimeHint) {
         }
         if (maxAciYear > 0) model = maxAciYear + '+' + (4 - maxAciYear);
 
-        // ── Store metadata for use in runAudit ────────────────────────────
         posMetadata = { aciName, asuDegree, asuUnit, aciDegree, conversion, model };
 
         // ── Update header bar silently ────────────────────────────────────
@@ -814,9 +778,9 @@ function handleFile(file, cardId, nameEl, mimeHint) {
         if (conversion) document.getElementById('hdr-conversion').textContent = conversion;
         if (model) document.getElementById('header-pill').textContent = model + ' Global Link Dual Degree';
 
-        document.getElementById(cardId).classList.add('filled');
         nameEl.style.display = 'inline-block';
-        nameEl.textContent = file.name + ' ✓ extracted';
+        nameEl.textContent = '✓ ' + file.name;
+        nameEl.closest('.upload-simple').classList.add('filled');
       } catch(err) {
         alert('Could not read Excel file: ' + err.message);
       }
@@ -825,16 +789,13 @@ function handleFile(file, cardId, nameEl, mimeHint) {
   } else {
     reader.onload = e => {
       txBase64 = e.target.result.split(',')[1];
-      document.getElementById(cardId).classList.add('filled');
       nameEl.style.display = 'inline-block';
-      nameEl.textContent = file.name;
+      nameEl.textContent = '✓ ' + file.name;
+      nameEl.closest('.upload-simple').classList.add('filled');
     };
     reader.readAsDataURL(file);
   }
 }
-
-setupDrop('pos-card', 'pos-file', 'pos-name', 'xlsx');
-setupDrop('tx-card', 'tx-file', 'tx-name', 'pdf');
 
 function setStatus(msg) {
   document.getElementById('status-text').textContent = msg;
