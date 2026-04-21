@@ -119,7 +119,13 @@
     padding: 0 2rem;
     height: 42px;
     background: var(--blue);
+    overflow-x: auto;
+    overflow-y: hidden;
+    scrollbar-width: none;
+    flex-shrink: 0;
   }
+
+  .header-program-bar::-webkit-scrollbar { display: none; }
 
   .prog-block {
     display: flex;
@@ -162,6 +168,7 @@
     max-width: 1100px;
     margin: 0 auto;
     padding: 2.5rem 1.5rem 4rem;
+    scroll-margin-top: 100px;
   }
 
   /* ---- API KEY BANNER ---- */
@@ -237,7 +244,7 @@
   }
 
   .upload-card input[type="file"] {
-    position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; height: 100%;
+    position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; height: 100%; z-index: 10;
   }
 
   .upload-icon {
