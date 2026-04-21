@@ -257,47 +257,46 @@ function onPosFile(input) {
       var aciName = '', asuUnit = '', asuDegree = '', aciDegree = '', conversion = '', model = '';
       var maxAciYear = 0;
 
-      lines.forEach(function(line) {
+      for (var i = 0; i < lines.length; i++) {
+        var line = lines[i];
         var l = line.toLowerCase();
-        // ACI institution name
-        if (!aciName && (l.indexOf('cintana institution') >= 0 || l.indexOf('aci:') >= 0)) {
-          var m = line.match(/[,:][\s"]*([^,"]+university[^,"]*)/i);
-          if (m) aciName = m[1].trim();
-        }
-        // ASU Academic Unit
+
+        // ASU Academic Unit: Ira A. Fulton Schools of Engineering
         if (!asuUnit && l.indexOf('asu academic unit') >= 0) {
-          var m = line.match(/asu academic unit[^,]*,[\s"]*([^,"\n]+)/i);
-          if (m) asuUnit = m[1].trim().replace(/"/g,'');
+          var m = line.match(/asu academic unit[:\s,]+([^,\t\n"]+)/i);
+          if (m) asuUnit = m[1].trim();
         }
-        // ASU Degree Program
+        // ASU Degree Program (Plan of Study sheet): "BS, Computer Science"
         if (!asuDegree && l.indexOf('asu degree program') >= 0) {
-          var m = line.match(/asu degree program[^,]*,[\s"]*([^,"\n]+)/i);
-          if (m) asuDegree = m[1].trim().replace(/"/g,'');
+          var m = line.match(/asu degree program[^,]*,\s*"?([^,"\n]+)/i);
+          if (m) asuDegree = m[1].trim();
+        }
+        // Degree on line after ASU Academic Unit (60-60 sheet format)
+        if (!asuDegree && i > 0 && lines[i-1].toLowerCase().indexOf('asu academic unit') >= 0) {
+          var deg = line.split(',')[0].replace(/"/g,'').trim();
+          if (deg && deg.length > 2) asuDegree = deg;
         }
         // ACI Degree Program
         if (!aciDegree && l.indexOf('aci degree program') >= 0) {
-          var m = line.match(/aci degree program[^,]*,[\s"]*([^,"\n]+)/i);
-          if (m) aciDegree = m[1].trim().replace(/"/g,'');
+          var m = line.match(/aci degree program[^,]*,\s*"?([^,"\n]+)/i);
+          if (m) aciDegree = m[1].trim();
         }
-        // Credit conversion
-        if (!conversion && (l.indexOf('conversion') >= 0 || (l.indexOf('credit') >= 0 && l.indexOf('ratio') >= 0))) {
-          var m = line.match(/[\d.]+ \w+ credit[^,"\n]*/i);
-          if (m) conversion = m[0].trim().replace(/"/g,'');
+        // ACI institution name
+        if (!aciName && l.indexOf('cintana institution') >= 0) {
+          var m = line.match(/cintana institution[^,]*[,:]\s*"?([^,"\n]+)/i);
+          if (m) aciName = m[1].trim();
         }
-        // Detect max ACI year (before Transfer to ASU line)
+        // Credit conversion: "1 SNU Credit = 0.75 ASU Credit"
+        if (!conversion && (l.indexOf('credit conversion') >= 0 || l.indexOf('conversion:') >= 0 || (l.indexOf('approved') >= 0 && l.indexOf('credit') >= 0))) {
+          var m = line.match(/(\d[\d.]* \w+ [Cc]redit[^,\t\n"]*=\s*[\d.]+ [^,\t\n"]*[Cc]redit)/);
+          if (m) conversion = m[1].trim();
+        }
+        // Detect max ACI year before Transfer to ASU
+        if (l.indexOf('transfer to asu') >= 0) break;
         var yr = line.match(/^"?(\d)"?,/);
         if (yr) maxAciYear = Math.max(maxAciYear, parseInt(yr[1]));
-      });
-
-      // Stop counting years at Transfer to ASU line
-      var transferIdx = lines.findIndex(function(l){ return l.toLowerCase().indexOf('transfer to asu') >= 0; });
-      if (transferIdx > 0) {
-        maxAciYear = 0;
-        for (var i = 0; i < transferIdx; i++) {
-          var yr = lines[i].match(/^"?(\d)"?,/);
-          if (yr) maxAciYear = Math.max(maxAciYear, parseInt(yr[1]));
-        }
       }
+
       if (maxAciYear > 0) model = maxAciYear + '+' + (4 - maxAciYear);
 
       // Update header bar
