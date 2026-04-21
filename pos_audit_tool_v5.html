@@ -138,7 +138,7 @@ main { max-width: 1100px; margin: 0 auto; padding: 2.5rem 1.5rem 4rem; }
       <h1>POS Audit Tool</h1>
       <span>Enrollment Advising</span>
     </div>
-    <div class="header-pill">Global Link Dual Degree</div>
+    <div class="header-pill" id="header-pill">Global Link Dual Degree</div>
   </div>
   <div class="header-program-bar">
     <div class="prog-block">
@@ -301,12 +301,13 @@ function onPosFile(input) {
       if (maxAciYear > 0) model = maxAciYear + '+' + (4 - maxAciYear);
 
       // Update header bar
-      if (aciName) document.getElementById('hdr-aci').textContent = aciName;
-      if (asuUnit) document.getElementById('hdr-asu-unit').textContent = asuUnit;
-      if (asuDegree) document.getElementById('hdr-asu-degree').textContent = asuDegree;
-      if (aciDegree) document.getElementById('hdr-aci-degree').textContent = aciDegree;
-      if (conversion) document.getElementById('hdr-conversion').textContent = conversion;
-      if (model) document.getElementById('header-pill').textContent = model + ' Global Link Dual Degree';
+      function setHdr(id, val) { var el = document.getElementById(id); if (el && val) el.textContent = val; }
+      setHdr('hdr-aci', aciName);
+      setHdr('hdr-asu-unit', asuUnit);
+      setHdr('hdr-asu-degree', asuDegree);
+      setHdr('hdr-aci-degree', aciDegree);
+      setHdr('hdr-conversion', conversion);
+      setHdr('header-pill', model ? model + ' Global Link Dual Degree' : '');
 
       document.getElementById('pos-box').classList.add('filled');
       var ok = document.getElementById('pos-ok');
